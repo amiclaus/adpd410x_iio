@@ -37,6 +37,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 *******************************************************************************/
 
+/******************************************************************************/
+/***************************** Include Files **********************************/
+/******************************************************************************/
+
 #include "iio_types.h"
 #include <stdlib.h>
 #include <stdio.h>
@@ -44,6 +48,10 @@
 #include "adpd410x.h"
 #include "util.h"
 #include "error.h"
+
+/******************************************************************************/
+/************************ Functions Definitions *******************************/
+/******************************************************************************/
 
 /**
  * @brief Read ADC Channel data.
@@ -53,18 +61,19 @@
  * @param channel - IIO channel information.
  * @return Number of bytes printed in the output buffer, or negative error code.
  */
-static ssize_t adpd410x_iio_channel_read_raw(void *device, char *buf,
+static ssize_t adpd410x_iio_read_raw_chan(void *device, char *buf,
 		size_t len,
-		const struct iio_ch_info *channel)
+		const struct iio_ch_info *channel, intptr_t priv)
 {
 	struct adpd410x_dev *dev = (struct adpd410x_dev *)device;
-	int32_t ret, data[8];
+	int32_t ret;
+	uint32_t data[8];
 
 	ret = adpd410x_set_opmode(dev, ADPD410X_GOMODE);
 	if (ret != SUCCESS)
 		return ret;
 
-	ret = adpd410x_get_data(dev, &data);
+	ret = adpd410x_get_data(dev, data);
 	if (ret != SUCCESS)
 		return ret;
 
@@ -100,6 +109,33 @@ static ssize_t adpd410x_iio_set_sampling_freq(void *device, char *buf,
 }
 
 /**
+ * @brief Get device sampling frequency.
+ * @param device - Device driver descriptor.
+ * @param buf - Input buffer.
+ * @param len - Length of the input buffer (not used in this case).
+ * @param channel - IIO channel information.
+ * @return Number of bytes printed in the output buffer, or negative error code.
+ */
+static ssize_t adpd410x_iio_get_sampling_freq(void *device, char *buf,
+		size_t len,
+		const struct iio_ch_info *channel, intptr_t priv)
+{
+	struct adpd410x_dev *dev = (struct adpd410x_dev *)device;
+	int32_t ret;
+	uint32_t sampling_freq;
+
+	ret = adpd410x_get_sampling_freq(dev, &sampling_freq);
+	if (ret != SUCCESS)
+		return ret;
+
+	return snprintf(buf, len, "%d", sampling_freq);
+}
+
+static char const * const adpd410x_iio_timeslots[] = {
+	"A","B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L",
+};
+
+/**
  * @brief Set number of active time slots.
  * @param device - Device driver descriptor.
  * @param buf - Input buffer.
@@ -113,10 +149,13 @@ static ssize_t adpd410x_iio_set_last_timeslot(void *device, char *buf,
 {
 	struct adpd410x_dev *dev = (struct adpd410x_dev *)device;
 	int32_t ret;
+	int8_t i;
 
-	enum adpd410x_timeslots timeslot_no = srt_to_uint32(buf);
+	for (i = 0; i < ARRAY_SIZE(adpd410x_iio_timeslots); i++)
+		if (!strncmp(buf, adpd410x_iio_timeslots[i], len))
+			break;
 
-	ret = adpd410x_set_last_timeslot(dev, timeslot_no);
+	ret = adpd410x_set_last_timeslot(dev, i);
 	if (ret != SUCCESS)
 		return ret;
 
@@ -124,7 +163,56 @@ static ssize_t adpd410x_iio_set_last_timeslot(void *device, char *buf,
 }
 
 /**
- * @brief Set device sampling frequency.
+ * @brief Get number of active time slots.
+ * @param device - Device driver descriptor.
+ * @param buf - Input buffer.
+ * @param len - Length of the input buffer.
+ * @param channel - IIO channel information.
+ * @return Number of bytes printed in the output buffer, or negative error code.
+ */
+static ssize_t adpd410x_iio_get_last_timeslot(void *device, char *buf,
+		size_t len,
+		const struct iio_ch_info *channel, intptr_t priv)
+{
+	struct adpd410x_dev *dev = (struct adpd410x_dev *)device;
+	int32_t ret;
+	uint8_t timeslot_no;
+
+	ret = adpd410x_get_last_timeslot(dev, &timeslot_no);
+	if (ret != SUCCESS)
+		return ret;
+
+	return snprintf(buf, len, "%d", timeslot_no);
+}
+
+/**
+ * @brief Get timeslots available.
+ * @param device - Device driver descriptor.
+ * @param buf - Input buffer.
+ * @param len - Length of the input buffer.
+ * @param channel - IIO channel information.
+ * @return Number of bytes printed in the output buffer, or negative error code.
+ */
+static ssize_t adpd410x_iio_get_last_timeslot_available(void *device, char *buf,
+		size_t len,
+		const struct iio_ch_info *channel, intptr_t priv)
+{
+	strcpy(buf, "");
+	for (int8_t i = 0; i < ARRAY_SIZE(adpd410x_iio_timeslots); i++) {
+		strcat(buf, adpd410x_iio_timeslots[i]);
+		strcat(buf, " ");
+	}
+
+	return strlen(buf);
+}
+
+static char const * const adpd410x_iio_opmode[] = {
+	"standby",
+	"go_mode"
+};
+
+/**
+ * @brief Set device operation mode.
  * @param device - Device driver descriptor.
  * @param buf - Input buffer.
  * @param len - Length of the input buffer (not used in this case).
@@ -136,21 +224,67 @@ static ssize_t adpd410x_iio_set_opmode(void *device, char *buf, size_t len,
 {
 	struct adpd410x_dev *dev = (struct adpd410x_dev *)device;
 	int32_t ret;
+	int8_t i;
 
-	enum adpd410x_opmode mode = srt_to_uint32(buf);
+	for (i = 0; i < ARRAY_SIZE(adpd410x_iio_opmode); i++)
+		if (!strncmp(buf, adpd410x_iio_opmode[i], len))
+			break;
 
-	ret = adpd410x_set_opmode(dev, mode);
+	ret = adpd410x_set_opmode(dev, i);
 	if (ret != SUCCESS)
 		return ret;
 
 	return len;
 }
 
+/**
+ * @brief Get device operation mode.
+ * @param device - Device driver descriptor.
+ * @param buf - Input buffer.
+ * @param len - Length of the input buffer.
+ * @param channel - IIO channel information.
+ * @return Number of bytes printed in the output buffer, or negative error code.
+ */
+static ssize_t adpd410x_iio_get_opmode(void *device, char *buf, size_t len,
+				       const struct iio_ch_info *channel, intptr_t priv)
+{
+	struct adpd410x_dev *dev = (struct adpd410x_dev *)device;
+	int32_t ret;
+	enum adpd410x_opmode mode;
+
+	ret = adpd410x_get_opmode(dev, &mode);
+	if (ret != SUCCESS)
+		return ret;
+
+	return snprintf(buf, len, "%d", mode);
+}
+
+/**
+ * @brief Get operation modes available.
+ * @param device - Device driver descriptor.
+ * @param buf - Input buffer.
+ * @param len - Length of the input buffer.
+ * @param channel - IIO channel information.
+ * @return Number of bytes printed in the output buffer, or negative error code.
+ */
+static ssize_t adpd410x_iio_get_opmode_available(void *device, char *buf,
+		size_t len,
+		const struct iio_ch_info *channel, intptr_t priv)
+{
+	strcpy(buf, "");
+	for (int8_t i = 0; i < ARRAY_SIZE(adpd410x_iio_opmode); i++) {
+		strcat(buf, adpd410x_iio_opmode[i]);
+		strcat(buf, " ");
+	}
+
+	return strlen(buf);
+}
+
 /** IIO channel attributes*/
 static struct iio_attribute adpd410x_iio_channel_attributes[] = {
 	{
 		.name = "raw",
-		.show = adpd410x_iio_channel_read_raw,
+		.show = adpd410x_iio_read_raw_chan,
 		.store = NULL
 	},
 	END_ATTRIBUTES_ARRAY,
@@ -159,7 +293,7 @@ static struct iio_attribute adpd410x_iio_channel_attributes[] = {
 /** Channel Scan Type */
 static struct scan_type channel_scan_type = {
 	.sign = 'u',
-	.realbits = 16,
+	.realbits = 24,
 	.storagebits = 32,
 	.shift = 0,
 	.is_big_endian = false
@@ -194,18 +328,28 @@ static struct iio_channel adpd410x_iio_channels[] = {
 static struct iio_attribute adpd410x_iio_attributes[] = {
 	{
 		.name = "sampling_frequency",
-		.show = NULL,
+		.show = adpd410x_iio_get_sampling_freq,
 		.store = adpd410x_iio_set_sampling_freq,
 	},
 	{
 		.name = "last_timeslot",
-		.show = NULL,
+		.show = adpd410x_iio_get_last_timeslot,
 		.store = adpd410x_iio_set_last_timeslot,
 	},
 	{
+		.name = "last_timeslot_available",
+		.show = adpd410x_iio_get_last_timeslot_available,
+		.store = NULL,
+	},
+	{
 		.name = "operation_mode",
-		.show = NULL,
+		.show = adpd410x_iio_get_opmode,
 		.store = adpd410x_iio_set_opmode,
+	},
+	{
+		.name = "operation_modes_available",
+		.show = adpd410x_iio_get_opmode_available,
+		.store = NULL,
 	},
 	END_ATTRIBUTES_ARRAY,
 };
@@ -218,4 +362,3 @@ struct iio_device const adpd410x_iio_descriptor = {
 	.debug_reg_read = (int32_t (*)())adpd410x_reg_read,
 	.debug_reg_write = (int32_t (*)())adpd410x_reg_write,
 };
-
